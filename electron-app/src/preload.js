@@ -11,6 +11,9 @@ import BlenderLocation from 'blender-location'
 import Setup from './setup'
 import filenamify from 'filenamify'
 import TemplateController from './template-controller.js'
+import { analyzer as audioAnalyzer } from './audio-analysis.js'
+import { kyoga } from './kyoga-framework.js'
+import { logger } from './logger-esm.js'
 
 const { clipboard } = require('electron')
 const os = require('os')
@@ -22,7 +25,6 @@ const Store = require('electron-store')
 const store = new Store()
 const open = require("open")
 const crypto = require('crypto')
-const request = require('request')
 const AdmZip = require("adm-zip")
 const setup = new Setup()
 
@@ -69,7 +71,7 @@ function listFolders(rootFolder) {
 			}
 		}
 	} catch (e) {
-		console.error(e)
+		logger.error('[KYŌGA] Error searching for template folder:', e.message)
 	}
 
 	return results;
@@ -90,7 +92,7 @@ const download = (url, dest, e) => {
 		let cur = 0;
 		let total = len / 1048576; //1048576 - bytes in  1Megabyte
 		req.on('response', function (data) {
-			console.log(data.headers['content-length']);
+			logger.debug('[KYŌGA] Download response headers content-length:', data.headers['content-length']);
 		});
 
 		// verify response code
@@ -156,7 +158,7 @@ contextBridge.exposeInMainWorld('myAPI', {
 	appendLogFileEntry: async (filename, log) => {
 		fsAync.appendFile(filename, log + "\r\n", (err) => {
 			if (err) {
-				console.log(err)
+				logger.error('[KYŌGA] Error appending to log file:', err.message)
 			}
 		})
 	},
@@ -193,16 +195,16 @@ contextBridge.exposeInMainWorld('myAPI', {
 		const result = ipcRenderer.invoke("path:temp")
 		return result;
 	},
-	clearCache: async () => {
-		const temp = await ipcRenderer.invoke("path:temp")
-		console.log(temp)
+		clearCache: async () => {
+			const temp = await ipcRenderer.invoke("path:temp")
+			logger.debug('[KYŌGA] Clearing cache from temporary directory:', temp)
 		// delete *_BAND_*.wav and *_BAND_*.csv files in temp directory
 		const files = await fsAync.readdir(temp)
 		for (let i = 0; i < files.length; i++) {
 			const file = files[i].toLowerCase()
 			if (file.indexOf('_band_') > -1 && (file.indexOf('.wav') > -1 || file.indexOf('.csv') > -1)) {
 				const fn = path.join(temp, file)
-				console.log("delete", fn)
+				logger.debug('[KYŌGA] Deleting analysis cache file:', fn)
 				await fsAync.unlink(fn)
 			}
 		}
@@ -412,7 +414,7 @@ contextBridge.exposeInMainWorld('myAPI', {
 
 			await cpy(path.join(`${source}/**`), destination)
 		} catch (e) {
-			console.log(e)
+			logger.error('[KYŌGA] Error copying directory:', e.message)
 		}
 	},
 	getBlenderLocation: async () => {
@@ -446,7 +448,7 @@ contextBridge.exposeInMainWorld('myAPI', {
 		let currentTemplate = 0
 		const result = folders.map(f => {
 			// normalize path separators to os specific separators
-			console.log("load template: " + f)
+			logger.debug('[KYŌGA] Loading template from path:', f)
 			f = path.normalize(f)
 
 			// the last 2 folders of path f where the 1.st is the author and the 2.nd the template name
@@ -480,7 +482,7 @@ contextBridge.exposeInMainWorld('myAPI', {
 					res.config = JSON.parse(fs.readFileSync(fn, 'utf8'))
 				} catch (e) {
 					res.config = {}
-					console.error(e)
+					logger.error('[KYŌGA] Error parsing template config:', e.message)
 				}
 			} else {
 				res = null
@@ -505,6 +507,97 @@ contextBridge.exposeInMainWorld('myAPI', {
 	installTemplate: async (zipFilename) => {
 		const ctrl = new TemplateController()
 		await ctrl.install(zipFilename)
+	},
+	analyzeAudio: async (filePath, templates) => {
+		try {
+			const analysis = await audioAnalyzer.analyzeAudio(filePath, templates)
+			return analysis
+		} catch (error) {
+			logger.error('[KYŌGA] Audio analysis error:', error.message)
+			return null
+		}
+	},
+	getAnalyzerStatus: () => {
+		return audioAnalyzer.getStatus()
+	},
+
+	// ========================================
+	// KYŌGA SYNESTHETIC FRAMEWORK API
+	// ========================================
+
+	/**
+	 * Translate audio features into a 9-dimensional mood vector.
+	 * This is Kyōga's perceptual lens on the music.
+	 * 
+	 * @param {Object} audioFeatures - From analyzeAudio()
+	 * @returns {Object} { mood: { energetic, calm, dark, bright, ... }, confidence: 0-1 }
+	 */
+	interpretMood: (audioFeatures) => {
+		try {
+			logger.debug('[KYŌGA] API call: interpretMood()')
+			const result = kyoga.interpretMood(audioFeatures)
+			return result
+		} catch (error) {
+			logger.error('[KYŌGA] Error in interpretMood:', error.message)
+			return { mood: {}, confidence: 0, error: error.message }
+		}
+	},
+
+	/**
+	 * Generate a harmonious color palette from a mood vector.
+	 * Colors are the visual voice of the music.
+	 * 
+	 * @param {Object} mood - From interpretMood()
+	 * @returns {Object} { primary, secondary, tertiary, accent1, accent2, hueBase, saturation, lightness }
+	 */
+	resonateColor: (mood) => {
+		try {
+			logger.debug('[KYŌGA] API call: resonateColor()')
+			const palette = kyoga.resonateColor(mood)
+			return palette
+		} catch (error) {
+			logger.error('[KYŌGA] Error in resonateColor:', error.message)
+			return { primary: '#999999', error: error.message }
+		}
+	},
+
+	/**
+	 * Score a template's compatibility with the audio mood.
+	 * Higher scores indicate better harmony between visual form and music.
+	 * 
+	 * @param {Object} template - Template object with { name, style, emotionalProfile, ... }
+	 * @param {Object} mood - From interpretMood()
+	 * @returns {Object} { score: 0-1, explanation: string }
+	 */
+	harmonizeTemplate: (template, mood) => {
+		try {
+			logger.debug('[KYŌGA] API call: harmonizeTemplate()', { template: template.name })
+			const result = kyoga.harmonizeTemplate(template, mood)
+			return result
+		} catch (error) {
+			logger.error('[KYŌGA] Error in harmonizeTemplate:', error.message)
+			return { score: 0.5, explanation: 'Unable to evaluate harmony', error: error.message }
+		}
+	},
+
+	/**
+	 * Generate intelligent parameter suggestions for a template based on audio analysis.
+	 * Suggests colors, animation speeds, opacity, and other visual parameters.
+	 * 
+	 * @param {Object} templateParams - Template parameter definitions
+	 * @param {Object} audioFeatures - From analyzeAudio()
+	 * @param {Object} mood - From interpretMood()
+	 * @returns {Object} { paramName: { suggested, confidence, reasoning }, ... }
+	 */
+	tuneParameters: (templateParams, audioFeatures, mood) => {
+		try {
+			logger.debug('[KYŌGA] API call: tuneParameters()')
+			const suggestions = kyoga.tuneParameters(templateParams, audioFeatures, mood)
+			return suggestions
+		} catch (error) {
+			logger.error('[KYŌGA] Error in tuneParameters:', error.message)
+			return { error: error.message }
+		}
 	}
 })
 

@@ -75,7 +75,7 @@ const createWindow = () => {
       mainWindow.webContents.toggleDevTools()
     }
   } catch (e) {
-    console.warn(e)
+    // logger.warn('[KYŌGA] Debug config load error:', e.message)
   }
 
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);

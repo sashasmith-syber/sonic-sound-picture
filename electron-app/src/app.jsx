@@ -1,5 +1,6 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
+import { logger } from './logger-esm.js'
 import nicejob from './nicejob.js';
 import SetupSection from './setup-section.jsx';
 import FileInput from './fileinput.jsx';
@@ -15,6 +16,7 @@ import UsernameInput from './UsernameInput.jsx';
 import { JSONEditor } from "react-schema-based-json-editor"
 import * as Icon from 'react-bootstrap-icons';
 import NewTemplateInput from './new-template.jsx';
+import Config from './config.js';
 
 
 const schema = require('./template-schema-1.0.json')
@@ -58,7 +60,16 @@ class App extends React.Component {
 			},
 			templateConfigFormValid: false,
 			gui: { persistent: window.myAPI.load('gui.persistent') },
-			activeApplicationMenuIndex: 0
+			activeApplicationMenuIndex: 0,
+			
+			// KYŌGA FRAMEWORK STATE
+			kyogaAnalysis: null,        // Complete audio analysis result
+			audioMood: null,            // 9D mood vector from interpretMood()
+			moodConfidence: 0,          // Confidence score (0-1)
+			colorPalette: null,         // Color palette from resonateColor()
+			kyogaRecommendations: [],   // Ranked templates with harmony scores
+			kyogaParameterSuggestions: null,  // Parameter suggestions for selected template
+			kyogaAnalyzing: false       // UI loading state during analysis
 		}
 		this.state.activeApplicationMenuIndex = this.configVerified() ? 1 : 0
 
@@ -90,15 +101,12 @@ class App extends React.Component {
 		this.developmentMode = window.myAPI.load(`development`)
 
 		if (this.developmentMode) {
-			//this.state.filename = "C:\\Users\\steph\\Desktop\\test_tone.wav"
-			// this.state.filename = "C:\\Users\\steph\\Desktop\\test\\test_tone_short.wav"
-			// this.state.filename = "C:\\Users\\steph\\Desktop\\test\\test_kick.wav"
-
-			// this.state.filename = "C:\\Users\\steph\\Desktop\\test\\ELEKTRON.noise - Pitch Bull - 01 Pitch Bull.wav"
-			// this.state.filename = "C:\\Users\\steph\\Desktop\\test\\test_kick2.wav"
-			// this.state.filename = "C:\\Users\\steph\\Desktop\\Automatic 2022-11-18 1459.wav"
-			this.state.filename = "C:\\Users\\steph\\Desktop\\test\\demo_mastered.wav"
-			this.state.activeApplicationMenuIndex = 1
+			// Load development test audio file from dynamic path
+			const devAudioFile = Config.getDevAudioFile()
+			if (devAudioFile) {
+				this.state.filename = devAudioFile
+				this.state.activeApplicationMenuIndex = 1
+			}
 		}
 	}
 
@@ -139,7 +147,7 @@ class App extends React.Component {
 		}
 		/* const s = await window.myAPI.openDirectory()
 		if (!s.canceled) {
-			console.log(s.filePaths[0])
+			logger.debug('[KYŌGA] Selected directory path:', s.filePaths[0])
 		} */
 
 
@@ -159,6 +167,68 @@ class App extends React.Component {
 			b = 120
 		}
 		this.setState({ bpm: b })
+	}
+
+	// KYŌGA: Analyze audio and generate synesthetic recommendations
+	analyzeAudioWithKyoga = async (audioFeatures) => {
+		logger.info('[KYŌGA] Starting synesthetic audio analysis', { module: 'App.jsx', audioFeatures });
+		
+		try {
+			this.setState({ kyogaAnalyzing: true });
+
+			// Step 1: Interpret mood from audio features
+			const moodResult = await window.myAPI.interpretMood(audioFeatures);
+			logger.info('[KYŌGA] Mood interpretation complete', { 
+				module: 'App.jsx', 
+				confidence: moodResult.confidence 
+			});
+
+			// Step 2: Generate color palette from mood
+			const colorResult = await window.myAPI.resonateColor(moodResult.mood);
+			logger.info('[KYŌGA] Color palette generated', { 
+				module: 'App.jsx', 
+				primary: colorResult.primary 
+			});
+
+			// Step 3: Score all available templates for harmony with mood
+			const recommendedTemplates = [];
+			if (this.state.templates && this.state.templates.length > 0) {
+				for (const template of this.state.templates) {
+					const harmonyResult = await window.myAPI.harmonizeTemplate(template, moodResult.mood);
+					recommendedTemplates.push({
+						...template,
+						harmonyScore: harmonyResult.score,
+						harmonyExplanation: harmonyResult.explanation
+					});
+				}
+				// Sort by harmony score descending
+				recommendedTemplates.sort((a, b) => b.harmonyScore - a.harmonyScore);
+			}
+
+			logger.info('[KYŌGA] Template harmonization complete', { 
+				module: 'App.jsx', 
+				templateCount: recommendedTemplates.length,
+				topScore: recommendedTemplates[0]?.harmonyScore 
+			});
+
+			// Update state with all Kyōga analysis results
+			this.setState({
+				kyogaAnalysis: audioFeatures,
+				audioMood: moodResult.mood,
+				moodConfidence: moodResult.confidence,
+				colorPalette: colorResult,
+				kyogaRecommendations: recommendedTemplates,
+				kyogaAnalyzing: false
+			});
+
+			logger.info('[KYŌGA] Audio analysis complete and UI updated', { module: 'App.jsx' });
+		} catch (error) {
+			logger.error('[KYŌGA] Audio analysis failed', { 
+				module: 'App.jsx', 
+				error: error.message 
+			});
+			this.setState({ kyogaAnalyzing: false });
+		}
 	}
 
 	verifyExecutable(filename, name) {
@@ -218,7 +288,7 @@ class App extends React.Component {
 						<div className="">
 							<h3 className="fw-light">Audio file</h3>
 							{this.renderWavLoaderState()}
-							<Wav setBPM={this.setBPM.bind(this)} ffpropeApp={this.state?.executables?.ffprobe} setFilename={this.setFilename.bind(this)} filename={this.state.filename} />
+							<Wav setBPM={this.setBPM.bind(this)} ffpropeApp={this.state?.executables?.ffprobe} setFilename={this.setFilename.bind(this)} filename={this.state.filename} onAudioAnalyzed={this.analyzeAudioWithKyoga} />
 						</div>
 					</div>
 				</section>
@@ -248,6 +318,42 @@ class App extends React.Component {
 			customUserTemplateConfiguration: config,
 			// activeApplicationMenuIndex: this.state.activeApplicationMenuIndex + 1
 		})
+
+		// KYŌGA: Generate parameter suggestions for selected template
+		this.generateParameterSuggestions(template, config)
+	}
+
+	// KYŌGA: Generate parameter suggestions using synesthetic analysis
+	generateParameterSuggestions = async (template, config) => {
+		if (!this.state.audioMood || !this.state.kyogaAnalysis) {
+			logger.warn('[KYŌGA] Skipping parameter suggestions - no audio analysis available', { module: 'App.jsx' });
+			return;
+		}
+
+		try {
+			logger.info('[KYŌGA] Generating parameter suggestions for template', { 
+				module: 'App.jsx', 
+				templateName: template.name 
+			});
+
+			const suggestions = await window.myAPI.tuneParameters(
+				config.parms,
+				this.state.kyogaAnalysis,
+				this.state.audioMood
+			);
+
+			logger.info('[KYŌGA] Parameter suggestions generated successfully', { 
+				module: 'App.jsx', 
+				suggestionCount: Object.keys(suggestions).length 
+			});
+
+			this.setState({ kyogaParameterSuggestions: suggestions });
+		} catch (error) {
+			logger.error('[KYŌGA] Failed to generate parameter suggestions', { 
+				module: 'App.jsx', 
+				error: error.message 
+			});
+		}
 	}
 
 	async onCloneTemplate() {
@@ -263,7 +369,7 @@ class App extends React.Component {
 			}
 		}
 
-		console.log('copy', source, destination)
+		logger.debug('[KYŌGA] Cloning template', { source, destination })
 		await myAPI.copyDirectory(source, destination)
 		const templates = (await myAPI.getTemplates())
 
@@ -287,7 +393,7 @@ class App extends React.Component {
 			}
 		}
 
-		console.log('copy', source, destination)
+		logger.debug('[KYŌGA] Cloning template', { source, destination })
 		await myAPI.copyDirectory(source, destination)
 		const templates = (await myAPI.getTemplates())
 
@@ -347,7 +453,7 @@ class App extends React.Component {
 		const dir = await myAPI.openDirectory()
 		if (!dir.canceled) {
 			const targetDirectory = dir.filePaths[0]
-			console.log(targetDirectory)
+			logger.debug('[KYŌGA] Export target directory:', targetDirectory)
 			if (myAPI.fileExists(myAPI.pathJoin([targetDirectory, 'template.blend']))) {
 				window.alert(`${nicejob.bad()} - Do not use an existing template folder :/`)
 			} else {
@@ -366,7 +472,7 @@ class App extends React.Component {
 		if (!dir.canceled) {
 
 			const zipFilename = dir.filePaths[0]
-			console.log(zipFilename)
+			logger.debug('[KYŌGA] Installing template from ZIP:', zipFilename)
 
 			try {
 				await myAPI.installTemplate(zipFilename)
@@ -497,6 +603,231 @@ class App extends React.Component {
 		return result
 	}
 
+	// KYŌGA: Render mood vector visualization
+	renderMoodVisualization() {
+		if (!this.state.audioMood) {
+			return null;
+		}
+
+		const mood = this.state.audioMood;
+		const dimensions = ['energy', 'valence', 'arousal', 'brightness', 'warmth', 'complexity', 'movement', 'depth', 'texture'];
+		
+		return (
+			<div className="alert alert-info mt-3 mb-3">
+				<h5><strong>🎵 Kyōga Mood Analysis</strong></h5>
+				<p className="small mb-2">Synesthetic interpretation of your audio (confidence: {(this.state.moodConfidence * 100).toFixed(0)}%)</p>
+				<div className="row">
+					{dimensions.map((dim, idx) => (
+						<div key={dim} className="col-md-3 mb-2">
+							<div className="small">
+								<strong>{dim.charAt(0).toUpperCase() + dim.slice(1)}</strong>
+								<div className="progress" style={{ height: '20px' }}>
+									<div 
+										className="progress-bar" 
+										role="progressbar" 
+										style={{ width: ((mood[dim] || 0) * 100) + '%' }}
+										aria-valuenow={(mood[dim] || 0) * 100}
+										aria-valuemin="0"
+										aria-valuemax="100"
+									>
+										{((mood[dim] || 0) * 100).toFixed(0)}%
+									</div>
+								</div>
+							</div>
+						</div>
+					))}
+				</div>
+			</div>
+		);
+	}
+
+	// KYŌGA: Render color palette preview
+	renderColorPalette() {
+		if (!this.state.colorPalette) {
+			return null;
+		}
+
+		const colors = this.state.colorPalette;
+		const colorSwatches = [
+			{ name: 'Primary', hex: colors.primary },
+			{ name: 'Secondary', hex: colors.secondary },
+			{ name: 'Tertiary', hex: colors.tertiary },
+			{ name: 'Accent 1', hex: colors.accent1 },
+			{ name: 'Accent 2', hex: colors.accent2 }
+		];
+
+		return (
+			<div className="alert alert-success mt-3 mb-3">
+				<h5><strong>🎨 Harmonic Color Palette</strong></h5>
+				<p className="small mb-2">Colors resonating with your mood</p>
+				<div className="row">
+					{colorSwatches.map((swatch) => (
+						<div key={swatch.name} className="col-md-2 mb-2 text-center">
+							<div 
+								style={{
+									backgroundColor: swatch.hex,
+									height: '60px',
+									borderRadius: '4px',
+									border: '1px solid #ddd',
+									display: 'flex',
+									alignItems: 'flex-end',
+									justifyContent: 'center',
+									marginBottom: '5px'
+								}}
+							/>
+							<small><strong>{swatch.name}</strong></small>
+							<div className="text-muted" style={{ fontSize: '0.8em' }}>{swatch.hex}</div>
+						</div>
+					))}
+				</div>
+			</div>
+		);
+	}
+
+	// KYŌGA: Render template recommendations
+	renderTemplateRecommendations() {
+		if (!this.state.kyogaRecommendations || this.state.kyogaRecommendations.length === 0) {
+			return null;
+		}
+
+		const topRecommendations = this.state.kyogaRecommendations.slice(0, 5);
+
+		return (
+			<div className="alert alert-warning mt-3 mb-3">
+				<h5><strong>⭐ Kyōga Template Recommendations</strong></h5>
+				<p className="small mb-2">Templates ranked by harmony with your audio mood</p>
+				<table className="table table-sm">
+					<thead>
+						<tr>
+							<th>Rank</th>
+							<th>Template</th>
+							<th>Harmony Score</th>
+							<th>Notes</th>
+						</tr>
+					</thead>
+					<tbody>
+						{topRecommendations.map((template, idx) => (
+							<tr key={template.path}>
+								<td><strong>{idx + 1}</strong></td>
+								<td>{template.name}</td>
+								<td>
+									<div className="progress" style={{ height: '20px' }}>
+										<div 
+											className="progress-bar bg-success"
+											role="progressbar"
+											style={{ width: (template.harmonyScore * 100) + '%' }}
+											aria-valuenow={template.harmonyScore * 100}
+											aria-valuemin="0"
+											aria-valuemax="100"
+										>
+											{(template.harmonyScore * 100).toFixed(0)}%
+										</div>
+									</div>
+								</td>
+								<td className="small">{template.harmonyExplanation}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		);
+	}
+
+	// KYŌGA: Render parameter suggestions
+	renderParameterSuggestions() {
+		if (!this.state.kyogaParameterSuggestions || Object.keys(this.state.kyogaParameterSuggestions).length === 0) {
+			return null;
+		}
+
+		const suggestions = this.state.kyogaParameterSuggestions;
+		const parameterSuggestions = Object.entries(suggestions)
+			.filter(([_, suggestion]) => suggestion && suggestion.suggested !== undefined)
+			.slice(0, 10);  // Show top 10 suggestions
+
+		if (parameterSuggestions.length === 0) {
+			return null;
+		}
+
+		return (
+			<div className="alert alert-secondary mt-3 mb-3">
+				<h5><strong>💡 Kyōga Parameter Suggestions</strong></h5>
+				<p className="small mb-2">AI-recommended settings based on your audio's synesthetic profile</p>
+				<div className="table-responsive">
+					<table className="table table-sm">
+						<thead>
+							<tr>
+								<th>Parameter</th>
+								<th>Current</th>
+								<th>Suggested</th>
+								<th>Confidence</th>
+								<th>Reasoning</th>
+								<th>Action</th>
+							</tr>
+						</thead>
+						<tbody>
+							{parameterSuggestions.map(([paramName, suggestion]) => (
+								<tr key={paramName}>
+									<td><strong>{paramName}</strong></td>
+									<td className="small text-muted">
+										{this.getParameterCurrentValue(paramName)}
+									</td>
+									<td><strong>{suggestion.suggested}</strong></td>
+									<td>
+										<span className={`badge ${suggestion.confidence > 0.7 ? 'bg-success' : suggestion.confidence > 0.5 ? 'bg-warning' : 'bg-info'}`}>
+											{(suggestion.confidence * 100).toFixed(0)}%
+										</span>
+									</td>
+									<td className="small">{suggestion.reasoning}</td>
+									<td>
+										<button 
+											onClick={() => this.acceptParameterSuggestion(paramName, suggestion.suggested)}
+											className="btn btn-sm btn-outline-success"
+											title="Apply this suggestion"
+										>
+											✓ Apply
+										</button>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		);
+	}
+
+	// KYŌGA: Helper to get current parameter value
+	getParameterCurrentValue(paramName) {
+		const config = this.state.customUserTemplateConfiguration;
+		if (!config || !config.parms) {
+			return 'N/A';
+		}
+		const param = config.parms.find(p => p.name === paramName || p.title === paramName);
+		return param ? param.value : 'N/A';
+	}
+
+	// KYŌGA: Accept and apply parameter suggestion
+	acceptParameterSuggestion(paramName, suggestedValue) {
+		const config = { ...this.state.customUserTemplateConfiguration };
+		if (!config.parms) {
+			return;
+		}
+
+		for (let i = 0; i < config.parms.length; i++) {
+			if (config.parms[i].name === paramName || config.parms[i].title === paramName) {
+				config.parms[i].value = suggestedValue;
+				break;
+			}
+		}
+
+		this.setState({ customUserTemplateConfiguration: config });
+		logger.info('[KYŌGA] Applied parameter suggestion', { 
+			module: 'App.jsx', 
+			paramName, 
+			suggestedValue 
+		});
+	}
+
 	templateConfigFormValid() {
 		const form = this.templateConfigForm.current
 		if (form) {
@@ -530,6 +861,11 @@ class App extends React.Component {
 
 			return (
 				<section className="container-fluid">
+					{/* KYŌGA: Show mood and color analysis */}
+					{this.renderMoodVisualization()}
+					{this.renderColorPalette()}
+					{this.renderTemplateRecommendations()}
+
 					<form action="" ref={this.templateConfigForm}>
 						<div className="row">
 
@@ -542,6 +878,9 @@ class App extends React.Component {
 							<div className="row mb-3">
 								{this.renderTemplateConfigurations()}
 							</div>
+
+							{/* KYŌGA: Show parameter suggestions */}
+							{this.renderParameterSuggestions()}
 						</div>
 					</form>
 				</section>
@@ -579,7 +918,7 @@ class App extends React.Component {
 
 	stderr(line) {
 		this.setState({ stdout: line })
-		console.error(line)
+		logger.error('[KYŌGA] Render process stderr:', line)
 	}
 
 	on__SSO_INTERNAL_MESSAGE(ssoInfo) {
@@ -800,16 +1139,16 @@ class App extends React.Component {
 						jsonDataBridge.beats = beats
 						jsonDataBridge.bpm = parseInt(this.state.bpm, 10)
 						const jsonFilename = window.myAPI.pathJoin([tempFolder, `${hash}.json`])
-						console.log('jsonFilename', jsonFilename)
+						logger.debug('[KYŌGA] Generated render configuration file:', jsonFilename)
 						window.myAPI.writeJsonFile(jsonFilename, jsonDataBridge)
 					} catch (e) {
-						console.error(e)
+						logger.error('[KYŌGA] Error in feature detection, using fallback:', e.message)
 						const jsonDataBridgeFallback = JSON.parse(JSON.stringify(this.state.customUserTemplateConfiguration))
 						jsonDataBridgeFallback.sections = []
 						jsonDataBridgeFallback.beats = []
 						jsonDataBridgeFallback.bpm = parseInt(this.state.bpm, 10)
 						const jsonFilename = window.myAPI.pathJoin([tempFolder, `${hash}.json`])
-						console.warn('fallback jsonFilename', jsonFilename)
+						logger.warn('[KYŌGA] Using fallback configuration without feature detection:', jsonFilename)
 						window.myAPI.writeJsonFile(jsonFilename, jsonDataBridgeFallback)
 						this.setState({
 							songFeatureDetectionFailed: true

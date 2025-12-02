@@ -59,7 +59,7 @@ class ErrorBoundary extends React.Component {
 				const m = msg.join('\n')
 				a = m;
 			} catch (error) {
-				console.error(error)
+				logger.error('[KYŌGA] Error encoding error message:', error.message)
 				msg.push("Error while encoding error message: " + error.message)
 			}
 			const copiedMessage = this.state?.copied ? <span className='text-success'>

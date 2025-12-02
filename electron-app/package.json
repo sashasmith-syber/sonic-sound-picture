@@ -46,7 +46,6 @@
     "react-dom": "^18.2.0",
     "react-schema-based-json-editor": "^8.3.0",
     "react-share": "^4.4.1",
-    "request": "^2.88.2",
     "select2-react-component": "^6.1.1",
     "semver": "^7.5.0",
     "temp-write": "^5.0.0",
@@ -65,7 +64,7 @@
     "@vercel/webpack-asset-relocator-loader": "^1.7.3",
     "babel-loader": "^9.1.2",
     "css-loader": "^6.7.3",
-    "electron": "24.1.2",
+    "electron": "28.0.0",
     "node-loader": "^2.0.0",
     "style-loader": "^3.3.2",
     "util": "^0.12.5"

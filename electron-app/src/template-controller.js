@@ -1,4 +1,5 @@
 import filenamify from 'filenamify'
+import { logger } from './logger-esm.js'
 
 const os = require('os')
 const fs = require('fs')
@@ -68,7 +69,7 @@ TemplateController.prototype.verifyDirectoryFile = async function (filename) {
 	}
 
 	const fn = path.basename(filename).toLowerCase()
-	console.log(fn)
+	logger.debug('Processing template file:', fn)
 	switch (fn) {
 		case "template.blend":
 			if (type.mime !== 'application/x-blender') {
@@ -115,7 +116,7 @@ TemplateController.prototype.verifyDirectory = async function (dir) {
 TemplateController.prototype.install = async function (zipFilename) {
 	// extract to temp overwrite true
 	const temp = path.join(os.tmpdir(), path.basename(zipFilename))
-	console.log(temp)
+	logger.debug('Temporary extraction path:', temp)
 	if (fs.existsSync(temp)) {
 		const files = fs.readdirSync(temp)
 		for (let f = 0; f < files.length; f++) {
@@ -163,7 +164,7 @@ TemplateController.prototype.install = async function (zipFilename) {
 		fs.writeFileSync(filename, buffer)
 	})
 
-	console.log(targetFolder)
+	logger.info('Template extracted to:', targetFolder)
 }
 
 TemplateController.prototype.exportTemplate = async function (sourceDirectory, targetDirectory) {
@@ -188,7 +189,7 @@ TemplateController.prototype.exportTemplate = async function (sourceDirectory, t
 	}
 
 	const targetFilename = path.join(targetDirectory, `${creatorName}-${templateName}.zip`)
-	console.log(targetFilename)
+	logger.info('Template packaged at:', targetFilename)
 	zip.writeZip(targetFilename)
 }
 

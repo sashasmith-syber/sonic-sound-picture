@@ -11,7 +11,12 @@ module.exports = {
   },
   resolve: {
     fallback: {
-      util: require.resolve("util/")
+      util: require.resolve("util/"),
+      os: false,
+      fs: false,
+      path: false,
+      stream: false,
+      crypto: false
     }
   }
 };

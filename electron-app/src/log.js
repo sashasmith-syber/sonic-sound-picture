@@ -6,7 +6,7 @@ const Log = function () {
 Log.prototype.init = async function () {
 	// FIXME: FIX PERMISSION DENIED
 	this.logFilename = await window.myAPI.pathJoin([await window.myAPI.homeDirectory(), 'ssp.log'])
-	console.info(this.logFilename)
+	// logger.info('[KYŌGA] Log file initialized:', this.logFilename)
 }
 
 Log.prototype.reset = async function () {
@@ -52,33 +52,48 @@ Log.prototype.writePersistent = async function (logType, args) {
 		const strings = [dt, `[${logType}]`].concat(logEntry);
 		window.myAPI.appendLogFileEntry(this.logFilename, strings.join(' '));
 	} catch (e) {
-		console.error(`Unable to log:`, e);
+		// logger.error('[KYŌGA] Unable to persist log entry:', e.message);
 	} 
 	*/
 }
 
 Log.prototype.log = function () {
-	console.log.apply(console, arguments)
+	// Use logger instance for modern logging
+	if (typeof logger !== 'undefined') {
+		logger.debug('[KYŌGA] Log:', Array.from(arguments).join(' '))
+	}
 	this.writePersistent('log', arguments)
 }
 
 Log.prototype.error = function () {
-	console.error.apply(console, arguments)
+	// Use logger instance for modern logging
+	if (typeof logger !== 'undefined') {
+		logger.error('[KYŌGA] Error:', Array.from(arguments).join(' '))
+	}
 	this.writePersistent('log', arguments)
 }
 
 Log.prototype.warn = function () {
-	console.warn.apply(console, arguments)
+	// Use logger instance for modern logging
+	if (typeof logger !== 'undefined') {
+		logger.warn('[KYŌGA] Warning:', Array.from(arguments).join(' '))
+	}
 	this.writePersistent('log', arguments)
 }
 
 Log.prototype.info = function () {
-	console.info.apply(console, arguments)
+	// Use logger instance for modern logging
+	if (typeof logger !== 'undefined') {
+		logger.info('[KYŌGA] Info:', Array.from(arguments).join(' '))
+	}
 	this.writePersistent('log', arguments)
 }
 
 Log.prototype.trace = function () {
-	console.trace.apply(console, arguments)
+	// Use logger instance for modern logging
+	if (typeof logger !== 'undefined') {
+		logger.debug('[KYŌGA] Trace:', Array.from(arguments).join(' '))
+	}
 	this.writePersistent('log', arguments)
 }
 

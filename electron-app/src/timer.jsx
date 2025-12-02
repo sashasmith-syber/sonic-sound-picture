@@ -5,10 +5,10 @@ class Timer extends React.Component {
 		this.state = { seconds: 0 };
 	}
 
-	async tick() {
-		const result = await window.myAPI.x({
-			f: (msg) => {
-				console.log(msg)
+		async tick() {
+			const result = await window.myAPI.x({
+				f: (msg) => {
+					logger.debug('[KYŌGA] Timer tick:', msg)
 			}
 		});
 		this.setState(state => ({

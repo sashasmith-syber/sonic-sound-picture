@@ -18,4 +18,4 @@ module.exports = HashValue
 
 const h = new HashValue()
 const hex = h.compute('./hash.js', 'template-1')
-console.log(hex)
+// logger.debug('[KYŌGA] Hash computed:', hex)

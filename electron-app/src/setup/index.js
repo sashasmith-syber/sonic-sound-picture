@@ -5,7 +5,7 @@
 
 import fs from 'fs'
 import path from 'path'
-import request from 'request'
+import https from 'https'
 import AdmZip from 'adm-zip'
 import { execa } from 'execa'
 import config from './downloads.js'
@@ -36,35 +36,33 @@ Setup.prototype.getFilename = (fn) => {
 Setup.prototype.download = (url, dest, e) => {
 	return new Promise(function (resolve, reject) {
 		const file = fs.createWriteStream(dest)
-		const req = request.get(url)
 		let len = 1
 		let cur = 0
-		let total = len / 1048576 // 1048576 - bytes in  1Megabyte
-		req.on('response', function (data) {
-			// console.log(data.headers['content-length'])
-		})
 
-		// verify response code
-		req.on('response', (response) => {
+		const req = https.get(url, (response) => {
+			// verify response code
 			if (response.statusCode !== 200) {
 				reject(new Error('Response status was ' + response.statusCode))
+				return
 			}
 			len = parseInt(response.headers['content-length'], 10)
+			const total = len / 1048576 // 1048576 - bytes in 1Megabyte
 			cur = 0
-			total = len / 1048576 // 1048576 - bytes in  1Megabyte
+
 			e({
 				total,
 				percent: (100.0 * cur / (len || 1)).toFixed(2)
 			})
 
-			req.pipe(file)
-		})
-		req.on('data', function (chunk) {
-			cur += chunk.length
-			e({
-				total: len,
-				percent: (100.0 * cur / (len || 1)).toFixed(2)
+			response.on('data', function (chunk) {
+				cur += chunk.length
+				e({
+					total: len,
+					percent: (100.0 * cur / (len || 1)).toFixed(2)
+				})
 			})
+
+			response.pipe(file)
 		})
 
 		// close() is async, call cb after close completes

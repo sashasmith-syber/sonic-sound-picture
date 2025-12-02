@@ -5,6 +5,7 @@ import WaveSurferTimeline from 'wavesurfer.js/dist/plugin/wavesurfer.timeline.js
 import WaveSurferPlayhead from 'wavesurfer.js/dist/plugin/wavesurfer.playhead.js';
 import * as React from 'react';
 import nicejob from './nicejob.js';
+import { logger } from './logger-esm.js'
 const ff = require('./ff.js')
 var MusicTempo = require("music-tempo");
 
@@ -82,6 +83,7 @@ class Wav extends React.Component {
 		})
 
 		this.wavesurfer.on('error', (e) => {
+			logger.error('[KYŌGA] WaveSurfer error:', e)
 			log.error(e, 'try again')
 			// self.props.setFilename(null)
 			self.wavesurfer.destroy()
@@ -106,7 +108,7 @@ class Wav extends React.Component {
 			self.togglePlayButtonRef.current.focus()
 		})
 		/* this.wavesurfer.on('region-updated', (e) => {
-			console.log(e)
+			logger.debug('[KYŌGA] Wavesurfer region event:', e)
 			e.end = 8
 		}) */
 		this.wavesurfer.on('region-updated', function (region) {
@@ -155,12 +157,28 @@ class Wav extends React.Component {
 		}
 		const mt = new MusicTempo(audioData);
 		let bpm = Math.round(mt.tempo)
-		console.log(bpm)
+		logger.debug('[KYŌGA] Detected BPM:', bpm)
 		if (bpm === 0) {
 			bpm = 120
 		}
 		this.props.setBPM(bpm)
 		this.setState({ bpm: `${bpm} BPM` });
+
+		// KYŌGA: Prepare audio features for synesthetic analysis
+		const features = {
+			bpm: bpm,
+			duration: buffer.duration || this.audioContext.currentTime,
+			sampleRate: buffer.sampleRate || 44100,
+			numberOfChannels: buffer.numberOfChannels,
+			audioData: audioData  // Raw PCM data for feature extraction
+		};
+
+		logger.info('[KYŌGA] Extracted audio features, triggering analysis', { module: 'Wav.jsx', bpm });
+
+		// Call parent's Kyōga analysis callback if provided
+		if (this.props.onAudioAnalyzed) {
+			this.props.onAudioAnalyzed(features);
+		}
 	}
 
 	tryGetTime = (streams) => {
@@ -204,6 +222,7 @@ class Wav extends React.Component {
 				// self.props.setFilename(null)
 			} else {
 				var reader = new FileReader();
+				const self = this
 
 				reader.onload = function (fileEvent) {
 					context.decodeAudioData(fileEvent.target.result, self.calcTempo.bind(self));
@@ -212,7 +231,16 @@ class Wav extends React.Component {
 				reader.readAsArrayBuffer(f);
 
 				window.__blob = this.f = f
-				this.wavesurfer.loadBlob(f)
+				// Load the File blob into WaveSurfer
+				// File objects are Blobs, so we can pass them directly
+				logger.debug('[KYŌGA] Loading audio file blob into WaveSurfer')
+				
+				try {
+					this.wavesurfer.loadBlob(f)
+				} catch (error) {
+					logger.error('[KYŌGA] Failed to load audio file blob:', error.message)
+					window.alert('Failed to load audio file: ' + error.message)
+				}
 
 			}
 		}

@@ -22,7 +22,7 @@ class FileInput extends React.Component {
 	async locateBlender() {
 		try {
 			const x = await window.myAPI.getBlenderLocation()
-			console.log(x)
+			logger.debug('[KYŌGA] Blender location detected:', x.exe)
 			const filename = x.exe
 			this.setState({ file: filename })
 			window.myAPI.save(`executables.${this.props.code}`, filename)
@@ -88,7 +88,7 @@ class FileInput extends React.Component {
 			}
 
 		} catch (e) {
-			console.error(e)
+			logger.error('[KYŌGA] Installation error:', e.message)
 			this.setState({ installing: false, error: e.message })
 		}
 	}

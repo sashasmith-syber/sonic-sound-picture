@@ -23,6 +23,15 @@ module.exports = {
   module: {
     rules,
   },
+  resolve: {
+    fallback: {
+      os: false,
+      fs: false,
+      path: false,
+      stream: false,
+      crypto: false
+    }
+  },
   plugins: [copyPlugins],
   watchOptions: {
     ignored: [
